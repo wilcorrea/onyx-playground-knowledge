@@ -21,7 +21,7 @@
 | **Em Teste** (sem update)           | > 72h úteis           | Developer Experience    | `#dev-experience`    |
 | **Aguardando Autorização Final**    | > 12h úteis           | Governança              | `#governanca-gmud`   |
 | **Aguardando Janela de Implantação** (janela vencida) | qualquer | Developer Experience  | `#dev-experience`    |
-| **Em Implementação** (sem checkpoint a cada hora) | > 1h | Developer Experience    | `#dev-experience`    |
+| **Em Implantação** (sem checkpoint a cada hora) | > 1h | Developer Experience    | `#dev-experience`    |
 | **Em Avaliação Pós-Implantação**    | > 5 dias úteis        | Developer Experience    | `#dev-experience`    |
 | **Rollback** (sem confirmação)      | > 2h úteis            | Governança + DevEx (acione ambos) | `#governanca-gmud` e `#dev-experience` |
 

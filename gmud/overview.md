@@ -41,7 +41,7 @@ Geradas por **pipelines de CI configuradas via webhook nos repositórios**. Toda
 repositório com integração GMUD ativa, o pipeline:
 
 1. Cria uma issue no projeto `CHG` automaticamente
-2. Associa a GMUD ao Pull Request (campo `pull_request_url` na issue + status check `gmud/approved` no PR)
+2. Associa a GMUD ao Pull Request (campo `pull_request_url` na issue + status check `cd/gmud-approval` no PR)
 3. Coleta metadados a partir do PR (autor, descrição, arquivos tocados, plano de rollback se houver)
 4. Submete a GMUD ao **mesmo fluxo end-to-end** das manuais
 
@@ -75,7 +75,7 @@ A GMUD percorre os seguintes status (workflow do Jira no projeto `CHG`):
 6. **Em Teste** — validação funcional e de regressão
 7. **Aguardando Autorização Final** — última liberação antes da janela (gerente de produto)
 8. **Aguardando Janela de Implantação** — esperando o horário acordado
-9. **Em Implementação** — mudança sendo aplicada em produção
+9. **Em Implantação** — mudança sendo aplicada em produção (pipeline transita automaticamente quando o deploy começa)
 10. **Em Avaliação Pós-Implantação** — coleta de evidências (logs, métricas, smoke test)
 11. **Encerrada** — sucesso confirmado
 12. **Rollback** — mudança revertida, GMUD encerrada com indicador de falha
@@ -101,7 +101,7 @@ todo solicitante precisa entender:
 
 ### 1. Merge do PR é bloqueado até a GMUD ser aprovada
 
-O pipeline aplica um **status check** chamado `gmud/approved` em todo PR vinculado a uma GMUD. Esse check só passa
+O pipeline aplica um **status check** chamado `cd/gmud-approval` em todo PR vinculado a uma GMUD. Esse check só passa
 quando a GMUD chega ao status **Aprovada** (ou superior). Antes disso, o botão de merge fica desabilitado **mesmo que
 todos os reviewers tenham aprovado o PR**.
 
@@ -116,15 +116,59 @@ automático da GMUD associada. Aparece o motivo `auto-cancelled: PR closed witho
 O cancelamento manual também é possível a qualquer momento — basta mover a issue para **Cancelada** no Jira. O
 automatismo só cobre o caminho mais comum (PR descartado).
 
-### 3. Release só pode ser gerada com PR aprovado **E** GMUD aprovada
+### 3. Após o merge, a GMUD acompanha o pipeline de deploy
 
-Em projetos que usam **releases como mecanismo de delivery do artefato final** (não fazem deploy a partir do branch),
-a release só é cortada quando os dois critérios estão atendidos:
+A release **só é cortada depois que o PR é mesclado** — antes disso não há nada para deployar. Como o merge só é
+liberado com a GMUD aprovada (regra 1), no momento da release a GMUD já está em **Aprovada**. A partir do merge, o
+pipeline assume a transição:
 
-- PR aprovado por reviewers + status checks passando (incluindo `gmud/approved`)
-- GMUD associada em status **Aprovada** (ou um dos status descendentes válidos)
+1. Corta a tag de release no GitHub
+2. Inicia o deploy em produção
+3. **Transita a GMUD para "Em Implantação"** enquanto o deploy roda
+4. **Ao final, move a GMUD automaticamente para "Em Avaliação Pós-Implantação"**
 
-Se faltar qualquer um, a tentativa de criar a release falha com `release_blocked_by_gmud` no pipeline.
+Daí em diante o solicitante coleta evidências (logs, métricas, smoke test) e move manualmente para **Encerrada** ou
+**Rollback**.
+
+> Repare que o PR em si **não muda mais de estado** depois de mesclado — toda a transição pós-merge fica do lado da
+> GMUD. O PR fechado/mesclado é apenas o gatilho.
+
+## Releases e cobertura de GMUD
+
+Toda release que vai para produção precisa de **pelo menos uma GMUD aprovada cobrindo as mudanças**. Isso parece óbvio
+quando todo PR gera GMUD, mas tem um caso de borda importante.
+
+### Quando um PR NÃO gera GMUD
+
+Nem todo PR gera GMUD automaticamente. PRs que mudam apenas **arquivos não-produtivos** não disparam o pipeline de
+criação de GMUD. Exemplos típicos:
+
+- Mudanças só em `README.md`, conteúdo em `docs/`, ou comentários de código
+- Mudanças só em arquivos de teste (`*.test.ts`, `__tests__/`)
+- Mudanças em configuração de desenvolvimento (`.editorconfig`, `.vscode/`)
+- Mudanças em CI que não afetam o artefato deployado (`.github/workflows/lint.yml`)
+
+A lista exata de paths ignorados fica em `.gmud.yml > ignored_paths` em cada repositório.
+
+### O efeito de uma release composta só por PRs sem GMUD
+
+Se uma release for cortada contendo **apenas** PRs desse tipo (sem nenhuma GMUD associada):
+
+1. **A release É criada no GitHub** (a tag é gerada normalmente)
+2. **Mas o pipeline de deploy falha** ao não encontrar nenhuma GMUD aprovada cobrindo o conteúdo
+3. O erro retornado é `release_no_gmud_coverage` no log do pipeline
+
+> Em outras palavras: o GitHub gera a release, mas a esteira de deploy recusa o artefato em produção.
+
+### Como resolver quando isso acontece
+
+Três caminhos:
+
+- **Aguardar a próxima release** — se a próxima incluir um PR produtivo, ele traz a GMUD e cobre o acúmulo
+- **Forçar um PR produtivo pequeno** — algumas equipes fazem um "version bump" trivial (`package.json` ou similar) só
+  para gerar uma GMUD cobertura
+- **Abrir GMUD manual** — se o conteúdo realmente precisa subir para produção (ex.: documentação servida
+  estaticamente, mudanças de schema vazias), abra uma GMUD manual e linke ela à release no Jira
 
 ## Integração com Jira
 
