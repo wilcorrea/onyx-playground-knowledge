@@ -41,8 +41,8 @@ Experience ou o squad afetado direto. A Governança é dona do processo e tem vi
 ```
 :warning: GMUD parada — preciso de escalação
 
-GMUD: <CHG-XXXXX>
-Link: https://devi.atlassian.net/browse/CHG-XXXXX
+GMUD: <GST-IN-XXXXX>
+Link: https://devi.atlassian.net/browse/GST-IN-XXXXX
 Status atual: Em Análise de Impacto
 Tempo parado: <X horas úteis>
 Produto afetado: <produto>

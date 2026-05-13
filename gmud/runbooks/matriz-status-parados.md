@@ -38,8 +38,8 @@ Use este template em qualquer um dos dois canais:
 ```
 :warning: GMUD parada
 
-GMUD: <CHG-XXXXX>
-Link: https://devi.atlassian.net/browse/CHG-XXXXX
+GMUD: <GST-IN-XXXXX>
+Link: https://devi.atlassian.net/browse/GST-IN-XXXXX
 Status atual: <status>
 Tempo parado: <tempo>
 Urgência: <baixa | média | alta | crítica>

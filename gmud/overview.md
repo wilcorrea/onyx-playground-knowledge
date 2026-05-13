@@ -31,26 +31,46 @@ quem cria a issue e como os metadados são preenchidos.
 
 ### Manual
 
-O solicitante abre uma issue diretamente no projeto `CHG` do Jira, preenchendo o formulário de mudança. Usado para
+O solicitante abre uma issue diretamente no projeto `GST-IN` do Jira, preenchendo o formulário de mudança. Usado para
 mudanças que **não envolvem código**: configuração de infra, alteração de DNS, escalonamento de banco, mudanças de
 processo, manutenção física, etc.
 
 ### Automática
 
-Geradas por **pipelines de CI configuradas via webhook nos repositórios**. Toda vez que um Pull Request é aberto num
-repositório com integração GMUD ativa, o pipeline:
+Geradas por **pipelines de CI** acionadas por **webhook configurado no repositório**. Toda vez que um Pull Request é
+aberto num repositório com integração GMUD ativa, a automação:
 
-1. Cria uma issue no projeto `CHG` automaticamente
-2. Associa a GMUD ao Pull Request (campo `pull_request_url` na issue + status check `cd/gmud-approval` no PR)
-3. Coleta metadados a partir do PR (autor, descrição, arquivos tocados, plano de rollback se houver)
+1. Cria uma issue no projeto `GST-IN` do Jira
+2. Associa a GMUD ao Pull Request (status check `cd/gmud-approval` no PR + link no campo `pull_request_url` da issue)
+3. Coleta metadados do PR (autor, descrição, arquivos tocados, plano de rollback)
 4. Submete a GMUD ao **mesmo fluxo end-to-end** das manuais
 
-**Diferentes pipelines podem criar GMUDs automáticas.** Cada repositório pode ter sua própria configuração de coleta
-(arquivo `.gmud.yml` na raiz), mas o fluxo principal de status e aprovações é idêntico — só a etapa de extração de
-metadados varia entre pipelines.
+#### Quais repositórios geram GMUD automática
 
-> Antes de abrir um PR para produção, confirme se o repositório tem integração GMUD ativada. Se não tiver, abra uma
-> GMUD manual ANTES do merge — caso contrário, a release ficará bloqueada.
+Não é todo repositório que dispara GMUD automática. A regra prática vigente:
+
+| Tipo de repositório            | Gera GMUD automática? |
+|--------------------------------|-----------------------|
+| Microsserviço                  | **Sim**               |
+| Frontend                       | **Sim**               |
+| Infra (pipeline de Migration)  | **Sim**               |
+| Biblioteca (Lib)               | Não                   |
+| CLI                            | Não                   |
+
+Esse é o **primeiro filtro de diagnóstico** quando alguém pergunta "minha release não saiu, e agora?" — Lib e CLI não
+disparam o caminho automático, então o problema (se houver) é de outra natureza.
+
+#### Como a integração é configurada (não é tarefa do desenvolvedor)
+
+A integração GMUD é configurada em duas camadas, **ambas no nível administrativo do repositório no GitHub**:
+
+- **Webhook** — URL que recebe os eventos do GitHub e dispara a criação/atualização da GMUD no Jira
+- **Status check `cd/gmud-approval` marcado como `required`** no branch protection, para bloquear merge sem aprovação
+
+**Desenvolvedores não têm acesso a essas configurações** e não devem tentar mexer nelas. Não existe arquivo no
+repositório (`.gmud.yml`, `.gmud.json` ou similar) que o dev possa editar para mudar comportamento de GMUD. Se a
+integração parece quebrada para o seu repo, **o caminho é abrir um pedido para a Developer Experience**, não tentar
+configurar nada localmente.
 
 ## Tipos de mudança
 
@@ -62,15 +82,16 @@ metadados varia entre pipelines.
 
 ## Fluxo end-to-end
 
-A GMUD percorre os seguintes status (workflow do Jira no projeto `CHG`):
+A GMUD percorre os seguintes status (workflow do Jira no projeto `GST-IN`):
 
 1. **Aberta** — solicitante preencheu o formulário inicial
 2. **Em Análise de Impacto** — sistemas dependentes sendo avaliados
 3. **Em Avaliação CAB** — Change Advisory Board avalia risco/benefício
 4. **Aprovada** — passou no CAB, pronta para construção
-   - **Aprovação Janela de Bloqueio** *(branch alternativo, durante code freeze)* — quando uma janela de bloqueio é
-     iniciada, GMUDs que estavam em "Aprovada" transitam para este sub-status. Nele é possível disparar um deploy
-     emergencial reutilizando a GMUD existente, **sem criar uma nova release**. Detalhes na seção *Janela de Bloqueio*.
+   - **Aprovação Janela de Bloqueio** *(durante code freeze)* — quando uma janela de bloqueio está ativa, GMUDs já
+     aprovadas (ou que vão sendo aprovadas durante o freeze) transitam para este sub-status. Nele o deploy fica
+     **retido até uma aprovação executiva** (CTO / C-level da vertical) liberar. Detalhes na seção
+     *Janela de Bloqueio*.
 5. **Em Construção** — squad executando a mudança em ambiente de homologação
 6. **Em Teste** — validação funcional e de regressão
 7. **Aguardando Autorização Final** — última liberação antes da janela (gerente de produto)
@@ -111,7 +132,7 @@ todos os reviewers tenham aprovado o PR**.
 
 Se o PR for **fechado sem ser mesclado** (closed, not merged), o webhook `pull_request.closed` dispara um cancelamento
 automático da GMUD associada. Aparece o motivo `auto-cancelled: PR closed without merge` nos comentários da issue do
-`CHG`.
+`GST-IN`.
 
 O cancelamento manual também é possível a qualquer momento — basta mover a issue para **Cancelada** no Jira. O
 automatismo só cobre o caminho mais comum (PR descartado).
@@ -140,42 +161,43 @@ quando todo PR gera GMUD, mas tem um caso de borda importante.
 
 ### Quando um PR NÃO gera GMUD
 
-Nem todo PR gera GMUD automaticamente. PRs que mudam apenas **arquivos não-produtivos** não disparam o pipeline de
-criação de GMUD. Exemplos típicos:
+Nem todo PR num repositório com integração ativa gera GMUD. A automação reconhece quando o PR mudou apenas
+**arquivos não-produtivos** e pula a criação. Exemplos típicos:
 
 - Mudanças só em `README.md`, conteúdo em `docs/`, ou comentários de código
-- Mudanças só em arquivos de teste (`*.test.ts`, `__tests__/`)
+- Mudanças só em arquivos de teste
 - Mudanças em configuração de desenvolvimento (`.editorconfig`, `.vscode/`)
-- Mudanças em CI que não afetam o artefato deployado (`.github/workflows/lint.yml`)
+- Mudanças em CI que não afetam o artefato deployado
 
-A lista exata de paths ignorados fica em `.gmud.yml > ignored_paths` em cada repositório.
+A definição exata de "arquivo não-produtivo" é parte da configuração administrativa do webhook GMUD — os
+desenvolvedores não têm acesso para alterar essa lista.
 
 ### O efeito de uma release composta só por PRs sem GMUD
 
 Se uma release for cortada contendo **apenas** PRs desse tipo (sem nenhuma GMUD associada):
 
 1. **A release É criada no GitHub** (a tag é gerada normalmente)
-2. **Mas o pipeline de deploy falha** ao não encontrar nenhuma GMUD aprovada cobrindo o conteúdo
-3. O erro retornado é `release_no_gmud_coverage` no log do pipeline
+2. **Mas o pipeline de deploy falha** na etapa de validação de disponibilidade do artefato — sem GMUD cobrindo o
+   conteúdo, o estágio recusa a continuidade
 
-> Em outras palavras: o GitHub gera a release, mas a esteira de deploy recusa o artefato em produção.
+> Em outras palavras: o GitHub gera a release, mas a esteira de deploy não a publica em produção.
 
 ### Como resolver quando isso acontece
 
-Três caminhos:
+Em repositórios com **GMUD automática**, não é possível abrir uma GMUD manual para destravar uma release — os modos
+manual e automático são mutuamente exclusivos por repositório. Os caminhos válidos são:
 
-- **Aguardar a próxima release** — se a próxima incluir um PR produtivo, ele traz a GMUD e cobre o acúmulo
+- **Aguardar a próxima release** — se a próxima incluir um PR produtivo (que toque arquivos rastreados pela GMUD),
+  ele traz a GMUD e cobre o acúmulo
 - **Forçar um PR produtivo pequeno** — algumas equipes fazem um "version bump" trivial (`package.json` ou similar) só
-  para gerar uma GMUD cobertura
-- **Abrir GMUD manual** — se o conteúdo realmente precisa subir para produção (ex.: documentação servida
-  estaticamente, mudanças de schema vazias), abra uma GMUD manual e linke ela à release no Jira
+  para gerar uma GMUD de cobertura mínima
 
 ## Integração com Jira
 
-Cada GMUD vira uma issue no projeto Jira `CHG`. A integração entre o pipeline interno e o Jira é mantida pela DevEx e
+Cada GMUD vira uma issue no projeto Jira `GST-IN`. A integração entre o pipeline interno e o Jira é mantida pela DevEx e
 tem três pontos-chave:
 
-1. **Webhook de criação** — quando uma issue é aberta no `CHG`, dispara a etapa de Análise de Impacto.
+1. **Webhook de criação** — quando uma issue é aberta no `GST-IN`, dispara a etapa de Análise de Impacto.
 2. **Análise de Impacto automática** — consulta o **grafo de serviços** mantido pela Governança e popula o campo
    `Sistemas Afetados`.
 3. **Transições automáticas** — algumas transições são feitas por bot quando critérios são atendidos (ex.: testes
@@ -195,36 +217,33 @@ tem três pontos-chave:
 ## Janela de Bloqueio (Code Freeze)
 
 **Não confundir com "Janela de implantação"**: a *janela de implantação* é o horário **permitido** para deploy de uma
-GMUD específica; a **janela de bloqueio** é um período em que deploys regulares ficam **suspensos** por motivos
+GMUD específica; a **janela de bloqueio** é um período em que **deploys em produção ficam suspensos** por motivos
 calendarizados (véspera de feriado, lançamento grande, fim de mês contábil, auditoria SOC2, evento de marketing, etc).
 
-### O que muda quando uma janela de bloqueio está ativa
+### O que continua funcionando durante o freeze
 
-- **GMUDs novas** só podem ser do tipo **Emergencial** (Normal e Standard ficam suspensas)
-- **GMUDs já aprovadas** transitam automaticamente para o sub-status **Aprovação Janela de Bloqueio**
-- **Geração de releases automáticas fica suspensa** — pipelines não cortam tag durante o freeze
-- **Deploys precisam reutilizar uma GMUD já aprovada** — não há caminho automático de "criar release nova"
+- **GMUDs continuam sendo geradas normalmente** — os webhooks dos repositórios seguem criando issues no `GST-IN` a
+  cada PR aberto
+- **Releases continuam sendo cortadas no GitHub** quando PRs são mesclados — a esteira não interrompe o corte de tag
+- **O fluxo de status até a aprovação opera igual** — Análise de Impacto, CAB, etc. continuam acontecendo
 
-### Como funciona o deploy durante o freeze
+Em uma frase: **o pipeline gera tudo, mas não deploya nada sem liberação executiva**.
 
-Esse é o ponto-chave: durante a janela de bloqueio, uma GMUD em status **Aprovação Janela de Bloqueio** pode ser usada
-como **gatilho manual de deploy emergencial**. O deploy:
+### O que muda durante o freeze
 
-1. **Não cria uma release nova** — aponta para o último artefato já gerado antes do freeze
-2. **Reutiliza a GMUD associada** que já passou pelo CAB
-3. **Requer aprovação on-the-fly do Change Manager de plantão da semana** — não passa pelo CAB de novo (já passou),
-   mas o Change Manager precisa confirmar que a emergência justifica o bypass do freeze
-4. **Gera entrada no log de exceções de freeze** — auditoria reforçada, todo deploy nessa modalidade fica registrado
-
-Em uma frase: durante uma janela de bloqueio, GMUDs aprovadas viram **"GMUDs de gatilho manual"** — ficam à disposição
-para emergências, mas perdem o automatismo de release.
+- **A aprovação rotineira do CAB não basta**. A liberação passa a exigir um aprovador de **nível executivo** —
+  tipicamente o **CTO** ou um **C-level da vertical impactada**. Sem essa assinatura, a GMUD não destrava.
+- **GMUDs aprovadas (antes ou durante o freeze) transitam para o sub-status "Aprovação Janela de Bloqueio"**, sinalizando
+  que o deploy está retido aguardando a liberação executiva.
+- **O uso da GMUD para deploy fica suspenso** até a aprovação executiva sair — mesmo que ela já tenha passado por todas
+  as etapas do CAB.
 
 ### Quem inicia e quem encerra uma janela de bloqueio
 
 - **Iniciar**: a Governança publica um anúncio no `#governanca-gmud` com data/hora de início, motivo e duração
-  estimada. Toda automação reage ao anúncio (não é manual no Jira).
-- **Encerrar**: a Governança publica o encerramento no mesmo canal e as GMUDs em **Aprovação Janela de Bloqueio**
-  voltam automaticamente para **Aprovada**, retomando o fluxo normal.
+  estimada. A automação reage ao anúncio (não é configurado manualmente no Jira).
+- **Encerrar**: a Governança publica o encerramento no mesmo canal. As GMUDs em **Aprovação Janela de Bloqueio**
+  voltam automaticamente para **Aprovada**, e o fluxo de deploy normal é retomado.
 
 ## Termo âncora
 
